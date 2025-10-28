@@ -1,79 +1,109 @@
-
-import React, { useState, useRef } from 'react';
-import { useAppContext } from '../context/AppContext';
+import React, { useState } from 'react';
+import { Product } from '../types';
 import Button from './ui/Button';
-import { productImageMap } from '../data/image_map';
+import { UploadIcon, CheckCircleIcon, XCircleIcon } from './icons';
 
-const CsvImporter: React.FC = () => {
-  const { addProduct } = useAppContext();
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const [isImporting, setIsImporting] = useState(false);
+interface CsvImporterProps {
+  onImport: (products: Product[]) => void;
+}
 
-  const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (!file) return;
+const CsvImporter: React.FC<CsvImporterProps> = ({ onImport }) => {
+  const [file, setFile] = useState<File | null>(null);
+  const [status, setStatus] = useState<'idle' | 'success' | 'error'>('idle');
+  const [message, setMessage] = useState('');
 
-    setIsImporting(true);
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files) {
+      setFile(e.target.files[0]);
+      setStatus('idle');
+      setMessage('');
+    }
+  };
+
+  const handleImport = () => {
+    if (!file) {
+      setStatus('error');
+      setMessage('Por favor, selecione um arquivo CSV.');
+      return;
+    }
+
     const reader = new FileReader();
-
     reader.onload = (e) => {
-      const text = e.target?.result as string;
-      // Mock processing - in a real app, use a proper CSV parser
       try {
-        const lines = text.split('\n').slice(1); // Skip header
-        let importedCount = 0;
-        lines.forEach(line => {
-          // FIX: Added subcategory to destructuring. The imported CSV is expected to have this column.
-          const [sku, name, category, subcategory, vendor, price, description, imageUrl] = line.split(',');
-          // FIX: Added subcategory to the validation check.
-          if (sku && name && category && subcategory && vendor && price) {
-            const trimmedSku = sku.trim();
-            const defaultImageUrl = productImageMap.get(trimmedSku) || `https://storage.googleapis.com/proud-wind-427819-p6.appspot.com/br-black-friday/${trimmedSku}.png`;
+        const text = e.target?.result as string;
+        const lines = text.trim().split('\n');
+        const headers = lines[0].split(',').map(h => h.trim());
+        const requiredHeaders = ['SKU', 'Nome do Produto', 'Categoria', 'Subcategoria', 'Fornecedor', 'Menor preço Marketplaces', 'Link de compra'];
+        
+        if (!requiredHeaders.every(h => headers.includes(h))) {
+            throw new Error(`Cabeçalhos ausentes. O CSV deve conter: ${requiredHeaders.join(', ')}`);
+        }
 
-            addProduct({
-              sku: trimmedSku,
-              name: name.trim(),
-              category: category.trim(),
-              // FIX: Added the missing subcategory property to resolve the type error.
-              subcategory: subcategory.trim(),
-              vendor: vendor.trim(),
-              price: parseFloat(price.trim()),
-              description: (description || '').trim(),
-              imageUrl: (imageUrl || defaultImageUrl).trim()
+        const products: Product[] = lines.slice(1).map(line => {
+            const values = line.split(',');
+            const obj: any = {};
+            headers.forEach((header, index) => {
+                 const value = (index === 5 && values.length > headers.length)
+                    ? values.slice(index, values.length - (headers.length - 1 - index)).join('')
+                    : values[index];
+                obj[header] = value?.trim() || '';
             });
-            importedCount++;
-          }
-        });
-        alert(`${importedCount} produtos importados com sucesso!`);
+
+            let priceString = obj['Menor preço Marketplaces'] || '0';
+            priceString = priceString.replace(/"/g, '').replace(/\./g, '').replace(',', '.');
+            const price = parseFloat(priceString);
+            
+            return {
+                id: obj['SKU'],
+                name: obj['Nome do Produto'],
+                category: obj['Categoria'],
+                subcategory: obj['Subcategoria'],
+                supplier: obj['Fornecedor'],
+                price: isNaN(price) ? 0 : price,
+                purchaseUrl: obj['Link de compra'] || '',
+                imageUrl: '',
+                description: '',
+                margin: 0,
+            };
+        }).filter(p => p.id);
+
+        onImport(products);
+        setStatus('success');
+        setMessage(`${products.length} produtos importados com sucesso!`);
+        setFile(null);
       } catch (error) {
-        alert('Falha ao analisar o arquivo CSV.');
-        console.error(error);
-      } finally {
-        setIsImporting(false);
-        // Reset file input
-        if(fileInputRef.current) fileInputRef.current.value = "";
+        setStatus('error');
+        setMessage(error instanceof Error ? `Erro ao processar o arquivo: ${error.message}` : 'Ocorreu um erro desconhecido.');
       }
     };
 
     reader.readAsText(file);
   };
 
-  const handleClick = () => {
-    fileInputRef.current?.click();
-  };
-
   return (
-    <div>
-      <input
-        type="file"
-        ref={fileInputRef}
-        onChange={handleFileChange}
-        accept=".csv"
-        className="hidden"
-      />
-      <Button onClick={handleClick} variant="secondary" isLoading={isImporting}>
-        Importar de CSV
-      </Button>
+    <div className="bg-dark-card p-4 rounded-lg shadow-md mb-6">
+      <h3 className="font-bold text-lg mb-2 text-gray-200">Importar Produtos via CSV</h3>
+      <p className="text-sm text-gray-400 mb-4">Selecione um arquivo CSV para adicionar ou atualizar produtos em massa. O arquivo deve ter os cabeçalhos: SKU, Nome do Produto, Categoria, Subcategoria, Fornecedor, Menor preço Marketplaces, Link de compra.</p>
+      <div className="flex items-center space-x-4">
+        <label className="flex-grow">
+          <span className="sr-only">Escolha o arquivo</span>
+          <input type="file" accept=".csv" onChange={handleFileChange}
+            className="block w-full text-sm text-gray-400 file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-semibold file:bg-gray-700 file:text-gray-200 hover:file:bg-gray-600"
+          />
+        </label>
+        <Button onClick={handleImport} disabled={!file}>
+          <UploadIcon className="w-5 h-5 mr-2" />
+          Importar
+        </Button>
+      </div>
+      {message && (
+        <div className={`mt-4 flex items-center p-2 rounded-md text-sm ${
+          status === 'success' ? 'bg-green-900/50 text-green-300' : 'bg-red-900/50 text-red-300'
+        }`}>
+          {status === 'success' ? <CheckCircleIcon className="w-5 h-5 mr-2" /> : <XCircleIcon className="w-5 h-5 mr-2" />}
+          {message}
+        </div>
+      )}
     </div>
   );
 };

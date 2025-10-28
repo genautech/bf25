@@ -1,94 +1,120 @@
-
 import React from 'react';
+import { Link, useNavigate } from 'react-router-dom';
 import { useAppContext } from '../context/AppContext';
-import { Link } from 'react-router-dom';
 import Button from '../components/ui/Button';
 import { PlusIcon, MinusIcon, TrashIcon } from '../components/icons';
+import { calculateFinalPrice } from '../utils/price';
 
 const CartPage: React.FC = () => {
   const { cart, updateCartQuantity, removeFromCart, clearCart } = useAppContext();
+  const navigate = useNavigate();
 
-  const totalPrice = cart.reduce((total, item) => total + item.price * item.quantity, 0);
+  const subtotal = cart.reduce((sum, item) => sum + calculateFinalPrice(item) * item.quantity, 0);
 
-  const handleExportCSV = () => {
-    const headers = ['ID', 'Nome', 'Categoria', 'Preço', 'Quantidade', 'Preço Total'];
-    const rows = cart.map(item => [
-      item.id,
-      `"${item.name.replace(/"/g, '""')}"`,
-      item.category,
-      item.price.toFixed(2),
-      item.quantity,
-      (item.price * item.quantity).toFixed(2)
-    ]);
+  const handleCheckout = () => {
+    if (cart.length === 0) {
+      alert("Seu carrinho está vazio.");
+      return;
+    }
 
-    const csvContent = "data:text/csv;charset=utf-8," 
-      + [headers.join(','), ...rows.map(e => e.join(','))].join('\n');
+    if (!window.confirm("Isso irá gerar um arquivo CSV do seu pedido e limpar o carrinho. Deseja continuar?")) {
+        return;
+    }
+
+    // 1. Generate CSV content
+    const headers = ['SKU', 'Nome do Produto', 'Quantidade', 'Preço Unitário (BRL)', 'Subtotal (BRL)'];
+    const rows = cart.map(item => {
+      const finalPrice = calculateFinalPrice(item);
+      const itemSubtotal = finalPrice * item.quantity;
+      // Garante que nomes com vírgula fiquem entre aspas
+      const safeName = `"${item.name.replace(/"/g, '""')}"`;
       
-    const link = document.createElement('a');
-    link.setAttribute('href', encodeURI(csvContent));
-    link.setAttribute('download', 'carrinho_export.csv');
+      return [
+        item.id,
+        safeName,
+        item.quantity,
+        finalPrice.toFixed(2).replace('.',','), // Formato de moeda brasileiro
+        itemSubtotal.toFixed(2).replace('.',',')
+      ].join(';'); // Usa ponto e vírgula como separador para evitar conflitos com a vírgula decimal
+    });
+
+    const csvContent = [headers.join(';'), ...rows].join('\n');
+    
+    // 2. Trigger download
+    // Adiciona BOM para garantir compatibilidade com Excel
+    const blob = new Blob([`\uFEFF${csvContent}`], { type: 'text/csv;charset=utf-8;' }); 
+    const link = document.createElement("a");
+    const url = URL.createObjectURL(blob);
+    link.setAttribute("href", url);
+    const timestamp = new Date().toISOString().slice(0, 10); // Formato AAAA-MM-DD
+    link.setAttribute("download", `pedido_blackfriday_${timestamp}.csv`);
+    link.style.visibility = 'hidden';
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+
+    // 3. Clear cart and navigate
+    alert("Pedido exportado com sucesso! O seu carrinho foi limpo.");
+    clearCart();
+    navigate('/');
   };
-  
+
   if (cart.length === 0) {
     return (
       <div className="text-center py-20">
         <h1 className="text-4xl font-bold text-gray-300">Seu Carrinho está Vazio</h1>
-        <p className="text-gray-400 mt-4">Parece que você ainda não adicionou nada ao seu carrinho.</p>
+        <p className="text-gray-400 mt-4">Adicione produtos para vê-los aqui.</p>
         <Link to="/">
-            <Button className="mt-8">Começar a Comprar</Button>
+          <Button className="mt-8">Continuar Comprando</Button>
         </Link>
       </div>
     );
   }
 
   return (
-    <div className="max-w-4xl mx-auto">
-      <h1 className="text-3xl font-bold mb-6 text-brand-primary">Carrinho de Compras</h1>
-      <div className="bg-dark-card rounded-lg shadow-lg">
+    <div>
+      <div className="flex justify-between items-center mb-6">
+        <h1 className="text-3xl font-bold text-brand-primary">Seu Carrinho</h1>
+        <Button variant="danger" onClick={clearCart}>Limpar Carrinho</Button>
+      </div>
+
+      <div className="bg-dark-card rounded-lg shadow-md">
         {cart.map(item => (
           <div key={item.id} className="flex items-center p-4 border-b border-dark-border last:border-b-0 flex-wrap">
-            <img 
-              src={item.imageUrl} 
-              alt={item.name} 
-              className="w-20 h-20 object-cover rounded-md mr-4"
-              onError={(e) => {
-                  const target = e.target as HTMLImageElement;
-                  target.onerror = null;
-                  target.src = `https://picsum.photos/seed/${item.sku}/400/300`;
-              }}
-            />
+            <img src={item.imageUrl} alt={item.name} className="w-20 h-20 object-cover rounded-md mr-4" />
             <div className="flex-grow">
-              <h2 className="text-lg font-semibold">{item.name}</h2>
-              <p className="text-sm text-gray-400">{item.category}</p>
-              <p className="text-brand-primary font-bold mt-1">{item.price.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</p>
+              <h2 className="font-bold text-lg">{item.name}</h2>
+              <p className="text-sm text-gray-400">{calculateFinalPrice(item).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</p>
             </div>
-            <div className="flex items-center space-x-3 my-2 sm:my-0">
-              <button onClick={() => updateCartQuantity(item.id, item.quantity - 1)} className="p-1 rounded-full bg-gray-600 hover:bg-gray-500">
+            <div className="flex items-center my-2 sm:my-0">
+              <Button onClick={() => updateCartQuantity(item.id, item.quantity - 1)} size="sm" variant="secondary" className="p-2">
                 <MinusIcon className="w-4 h-4" />
-              </button>
-              <span className="w-10 text-center font-semibold">{item.quantity}</span>
-              <button onClick={() => updateCartQuantity(item.id, item.quantity + 1)} className="p-1 rounded-full bg-gray-600 hover:bg-gray-500">
+              </Button>
+              <span className="px-4 font-bold w-12 text-center">{item.quantity}</span>
+              <Button onClick={() => updateCartQuantity(item.id, item.quantity + 1)} size="sm" variant="secondary" className="p-2">
                 <PlusIcon className="w-4 h-4" />
-              </button>
+              </Button>
             </div>
-            <p className="w-24 text-right font-semibold text-lg ml-4">{(item.price * item.quantity).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</p>
-            <button onClick={() => removeFromCart(item.id)} className="ml-4 text-gray-400 hover:text-red-500">
+            <div className="font-bold text-lg mx-4 w-32 text-right">
+              {(calculateFinalPrice(item) * item.quantity).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+            </div>
+            <Button onClick={() => removeFromCart(item.id)} variant="ghost" size="sm" className="text-red-500 hover:bg-red-500/10 p-2">
               <TrashIcon className="w-5 h-5" />
-            </button>
+            </Button>
           </div>
         ))}
       </div>
-      <div className="mt-6 p-4 bg-dark-card rounded-lg flex justify-between items-center flex-wrap gap-4">
-        <div>
-          <p className="text-lg text-gray-300">Preço Total:</p>
-          <p className="text-3xl font-extrabold text-brand-primary">{totalPrice.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</p>
-        </div>
-        <div className="flex gap-4">
-          <Button variant="danger" onClick={clearCart}>Limpar Carrinho</Button>
-          <Button onClick={handleExportCSV}>Exportar como CSV</Button>
+      
+      <div className="mt-8 flex justify-end">
+        <div className="w-full max-w-sm bg-dark-card p-6 rounded-lg shadow-md">
+          <h2 className="text-xl font-bold mb-4">Resumo do Pedido</h2>
+          <div className="flex justify-between text-lg">
+            <span>Subtotal</span>
+            <span className="font-bold">{subtotal.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</span>
+          </div>
+          <p className="text-sm text-gray-400 mt-2">Taxas e frete serão calculados na finalização.</p>
+          <Button onClick={handleCheckout} className="w-full mt-6">Finalizar Compra</Button>
         </div>
       </div>
     </div>

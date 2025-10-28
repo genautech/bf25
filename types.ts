@@ -1,14 +1,14 @@
 export interface Product {
-  id: number;
-  sku: string;
+  id: string; // SKU
   name: string;
   category: string;
   subcategory: string;
-  vendor: string;
+  supplier: string;
   price: number;
-  description: string;
-  imageUrl: string;
-  purchaseLink?: string;
+  purchaseUrl: string;
+  imageUrl?: string;
+  description?: string;
+  margin?: number;
 }
 
 export interface CartItem extends Product {

@@ -1,180 +1,165 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, FormEvent } from 'react';
 import { Product } from '../types';
-import { useAppContext } from '../context/AppContext';
-import { generateDescription, generateImage } from '../services/geminiService';
 import Modal from './ui/Modal';
 import Button from './ui/Button';
-import { SparklesIcon, ImageIcon } from './icons';
+import { generateDescription, generateImage } from '../services/geminiService';
+import { RefreshCwIcon } from './icons';
 
 interface ProductFormModalProps {
   isOpen: boolean;
   onClose: () => void;
-  product: Product | null;
+  onSave: (product: Product) => void;
+  productToEdit?: Product | null;
+  categories: string[];
+  subcategoryMap: Map<string, string[]>;
 }
 
-const ProductFormModal: React.FC<ProductFormModalProps> = ({ isOpen, onClose, product }) => {
-  const { addProduct, updateProduct } = useAppContext();
-  const [formData, setFormData] = useState({
-    sku: '',
-    name: '',
-    category: '',
-    subcategory: '',
-    vendor: '',
-    price: '',
-    description: '',
-    imageUrl: '',
-    purchaseLink: '',
-  });
-  const [isGeneratingDesc, setIsGeneratingDesc] = useState(false);
-  const [isGeneratingImg, setIsGeneratingImg] = useState(false);
-  const [imgError, setImgError] = useState<string | null>(null);
+const emptyProduct: Product = {
+  id: '',
+  name: '',
+  category: '',
+  subcategory: '',
+  supplier: '',
+  price: 0,
+  purchaseUrl: '',
+  imageUrl: '',
+  description: '',
+  margin: 0,
+};
+
+const ProductFormModal: React.FC<ProductFormModalProps> = ({ isOpen, onClose, onSave, productToEdit, categories, subcategoryMap }) => {
+  const [product, setProduct] = useState<Product>(emptyProduct);
+  const [isGenerating, setIsGenerating] = useState({ desc: false, image: false });
+  const [availableSubcategories, setAvailableSubcategories] = useState<string[]>([]);
 
   useEffect(() => {
-    if (product) {
-      setFormData({
-        sku: product.sku,
-        name: product.name,
-        category: product.category,
-        subcategory: product.subcategory,
-        vendor: product.vendor,
-        price: String(product.price),
-        description: product.description,
-        imageUrl: product.imageUrl,
-        purchaseLink: product.purchaseLink || '',
-      });
+    if (productToEdit) {
+      setProduct(productToEdit);
     } else {
-      setFormData({ sku: '', name: '', category: '', subcategory: '', vendor: '', price: '', description: '', imageUrl: '', purchaseLink: '' });
+      setProduct(emptyProduct);
     }
-  }, [product, isOpen]);
+  }, [productToEdit, isOpen]);
 
-  const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+  useEffect(() => {
+    if (product.category && subcategoryMap.has(product.category)) {
+      setAvailableSubcategories(subcategoryMap.get(product.category)!);
+    } else {
+      setAvailableSubcategories([]);
+    }
+  }, [product.category, subcategoryMap, isOpen]);
+
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
     const { name, value } = e.target;
-    setFormData(prev => ({ ...prev, [name]: value }));
+    
+    if (name === 'category' && product.category !== value) {
+        setProduct(prev => ({ ...prev, subcategory: '' })); // Reset subcategory when category changes
+    }
+    
+    setProduct(prev => ({ ...prev, [name]: name === 'price' || name === 'margin' ? parseFloat(value.replace(',', '.')) || 0 : value }));
   };
 
+  const handleSubmit = (e: FormEvent) => {
+    e.preventDefault();
+    onSave(product);
+  };
+  
   const handleGenerateDescription = async () => {
-    if (!formData.name) {
-      alert('Por favor, insira o nome do produto primeiro.');
-      return;
+    if (!product.name) {
+        alert("Por favor, insira um nome para o produto antes de gerar a descrição.");
+        return;
     }
-    setIsGeneratingDesc(true);
-    const generatedDesc = await generateDescription(formData.name);
-    setFormData(prev => ({ ...prev, description: generatedDesc }));
-    setIsGeneratingDesc(false);
+    setIsGenerating(prev => ({...prev, desc: true}));
+    const desc = await generateDescription(product.name);
+    setProduct(prev => ({...prev, description: desc}));
+    setIsGenerating(prev => ({...prev, desc: false}));
   };
   
   const handleGenerateImage = async () => {
-    if (!formData.name) {
-      alert('Por favor, insira o nome do produto para gerar um prompt de imagem.');
-      return;
+    if (!product.name) {
+        alert("Por favor, insira um nome para o produto antes de gerar uma imagem.");
+        return;
     }
-    setIsGeneratingImg(true);
-    setImgError(null);
-
-    const prompt = `Fotografia de produto profissional de um(a) "${formData.name}", da marca ${formData.vendor || 'genérica'}. ` +
-                   `Este item é da categoria "${formData.category || 'geral'}" e subcategoria "${formData.subcategory || 'outros'}". ` +
-                   `A imagem deve ter um fundo de estúdio limpo e neutro, com iluminação profissional que realce os detalhes e a textura do produto. ` +
-                   `Estilo comercial e de alta qualidade, adequado para um catálogo de e-commerce.`;
-
+    setIsGenerating(prev => ({...prev, image: true}));
+    const prompt = `Foto de produto profissional de alta qualidade para e-commerce de um "${product.name}", fundo branco minimalista, iluminação de estúdio.`;
     const result = await generateImage(prompt);
-    
-    if (result.url) {
-        setFormData(prev => ({ ...prev, imageUrl: result.url }));
-    } else if (result.error) {
-        setImgError(result.error);
-    }
-    setIsGeneratingImg(false);
-  };
-
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    const productData = {
-      ...formData,
-      price: parseFloat(formData.price) || 0,
-    };
-
-    if (product) {
-      updateProduct({ ...product, ...productData });
-      alert('Produto atualizado com sucesso.');
+    if(result.url) {
+        setProduct(prev => ({...prev, imageUrl: result.url}));
     } else {
-      addProduct(productData);
-      alert('Produto adicionado com sucesso.');
+        alert(`Erro ao gerar imagem: ${result.error}`);
     }
-    onClose();
+    setIsGenerating(prev => ({...prev, image: false}));
   };
   
-  const FormField: React.FC<{id: string; label: string; children: React.ReactNode}> = ({ id, label, children }) => (
-    <div>
-        <label htmlFor={id} className="block text-sm font-medium text-gray-300 mb-1">{label}</label>
-        {children}
-    </div>
-  );
+  const inputStyle = "w-full bg-gray-700 border border-dark-border rounded-md px-3 py-2 text-white focus:ring-brand-primary focus:border-brand-primary";
+  const labelStyle = "block text-sm font-medium text-gray-300 mb-1";
 
   return (
-    <Modal isOpen={isOpen} onClose={onClose} title={product ? 'Editar Produto' : 'Adicionar Novo Produto'}>
+    <Modal isOpen={isOpen} onClose={onClose} title={productToEdit ? 'Editar Produto' : 'Adicionar Produto'}>
       <form onSubmit={handleSubmit} className="space-y-4">
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <FormField id="sku" label="SKU">
-            <input type="text" id="sku" name="sku" value={formData.sku} onChange={handleChange} required className="w-full bg-gray-700 border border-dark-border rounded-md px-3 py-2 text-white focus:ring-brand-primary focus:border-brand-primary"/>
-          </FormField>
-          <FormField id="name" label="Nome do Produto">
-            <input type="text" id="name" name="name" value={formData.name} onChange={handleChange} required className="w-full bg-gray-700 border border-dark-border rounded-md px-3 py-2 text-white focus:ring-brand-primary focus:border-brand-primary"/>
-          </FormField>
-          <FormField id="category" label="Categoria">
-            <input type="text" id="category" name="category" value={formData.category} onChange={handleChange} required className="w-full bg-gray-700 border border-dark-border rounded-md px-3 py-2 text-white focus:ring-brand-primary focus:border-brand-primary"/>
-          </FormField>
-           <FormField id="subcategory" label="Subcategoria">
-            <input type="text" id="subcategory" name="subcategory" value={formData.subcategory} onChange={handleChange} required className="w-full bg-gray-700 border border-dark-border rounded-md px-3 py-2 text-white focus:ring-brand-primary focus:border-brand-primary"/>
-          </FormField>
-          <FormField id="vendor" label="Fornecedor">
-            <input type="text" id="vendor" name="vendor" value={formData.vendor} onChange={handleChange} required className="w-full bg-gray-700 border border-dark-border rounded-md px-3 py-2 text-white focus:ring-brand-primary focus:border-brand-primary"/>
-          </FormField>
-          <FormField id="price" label="Preço">
-            <input type="number" id="price" name="price" value={formData.price} onChange={handleChange} required min="0" step="0.01" className="w-full bg-gray-700 border border-dark-border rounded-md px-3 py-2 text-white focus:ring-brand-primary focus:border-brand-primary"/>
-          </FormField>
+          <div>
+            <label htmlFor="name" className={labelStyle}>Nome do Produto</label>
+            <input id="name" type="text" name="name" placeholder="Nome do Produto" value={product.name} onChange={handleChange} required className={inputStyle} />
+          </div>
+          <div>
+            <label htmlFor="id" className={labelStyle}>SKU</label>
+            <input id="id" type="text" name="id" placeholder="SKU" value={product.id} onChange={handleChange} required disabled={!!productToEdit} className={`${inputStyle} disabled:bg-gray-800 disabled:text-gray-400`} />
+          </div>
+          <div>
+            <label htmlFor="category" className={labelStyle}>Categoria</label>
+            <input id="category" type="text" name="category" list="category-list" placeholder="Categoria" value={product.category} onChange={handleChange} className={inputStyle} />
+             <datalist id="category-list">
+                {categories.map(cat => <option key={cat} value={cat} />)}
+            </datalist>
+          </div>
+          <div>
+            <label htmlFor="subcategory" className={labelStyle}>Subcategoria</label>
+            <input id="subcategory" type="text" name="subcategory" list="subcategory-list" placeholder="Subcategoria" value={product.subcategory} onChange={handleChange} className={`${inputStyle} disabled:opacity-50`} disabled={!product.category} />
+            <datalist id="subcategory-list">
+                {availableSubcategories.map(sub => <option key={sub} value={sub} />)}
+            </datalist>
+          </div>
+          <div>
+            <label htmlFor="supplier" className={labelStyle}>Fornecedor</label>
+            <input id="supplier" type="text" name="supplier" placeholder="Fornecedor" value={product.supplier} onChange={handleChange} className={inputStyle} />
+          </div>
+          <div>
+            <label htmlFor="price" className={labelStyle}>Preço de Custo (BRL)</label>
+            <input id="price" type="text" inputMode="decimal" name="price" placeholder="Ex: 99.90" value={product.price} onChange={handleChange} className={inputStyle} />
+          </div>
+          <div>
+            <label htmlFor="margin" className={labelStyle}>Margem de Lucro (%)</label>
+            <input id="margin" type="text" inputMode="decimal" name="margin" placeholder="Ex: 25" value={product.margin || ''} onChange={handleChange} className={inputStyle} />
+          </div>
           <div className="md:col-span-2">
-            <FormField id="purchaseLink" label="Link de Compra">
-              <input type="url" id="purchaseLink" name="purchaseLink" value={formData.purchaseLink} onChange={handleChange} className="w-full bg-gray-700 border border-dark-border rounded-md px-3 py-2 text-white focus:ring-brand-primary focus:border-brand-primary"/>
-            </FormField>
+            <label htmlFor="purchaseUrl" className={labelStyle}>URL de Compra</label>
+            <input id="purchaseUrl" type="url" name="purchaseUrl" placeholder="https://..." value={product.purchaseUrl} onChange={handleChange} className={inputStyle} />
+          </div>
+          
+          <div className="md:col-span-2">
+            <div className="flex justify-between items-center mb-1">
+              <label htmlFor="description" className="text-sm font-medium text-gray-300">Descrição</label>
+              <Button type="button" onClick={handleGenerateDescription} isLoading={isGenerating.desc} size="sm" variant="ghost">
+                  <RefreshCwIcon className={`w-4 h-4 mr-1 ${isGenerating.desc ? 'animate-spin' : ''}`} /> Gerar
+              </Button>
+            </div>
+            <textarea id="description" name="description" placeholder="Descrição do produto..." value={product.description} onChange={handleChange} className={`${inputStyle} h-24 resize-y`} />
+          </div>
+
+          <div className="md:col-span-2">
+            <div className="flex justify-between items-center mb-1">
+              <label htmlFor="imageUrl" className="text-sm font-medium text-gray-300">URL da Imagem</label>
+              <Button type="button" onClick={handleGenerateImage} isLoading={isGenerating.image} size="sm" variant="ghost">
+                  <RefreshCwIcon className={`w-4 h-4 mr-1 ${isGenerating.image ? 'animate-spin' : ''}`} /> Gerar
+              </Button>
+            </div>
+            <input id="imageUrl" type="url" name="imageUrl" placeholder="https://..." value={product.imageUrl} onChange={handleChange} className={inputStyle} />
           </div>
         </div>
-        
-        <FormField id="description" label="Descrição">
-          <div className="relative">
-            <textarea id="description" name="description" value={formData.description} onChange={handleChange} required rows={4} className="w-full bg-gray-700 border border-dark-border rounded-md px-3 py-2 text-white focus:ring-brand-primary focus:border-brand-primary resize-y"></textarea>
-            <Button type="button" variant="secondary" onClick={handleGenerateDescription} isLoading={isGeneratingDesc} className="absolute bottom-2 right-2 px-2 py-1 text-xs">
-              <SparklesIcon className="w-4 h-4 mr-1"/> Gerar com IA
-            </Button>
-          </div>
-        </FormField>
-        
-        <FormField id="imageUrl" label="URL da Imagem">
-            <div className="flex items-start gap-4">
-                <div className="flex-grow">
-                     <input type="text" id="imageUrl" name="imageUrl" value={formData.imageUrl} onChange={handleChange} required className="w-full bg-gray-700 border border-dark-border rounded-md px-3 py-2 text-white focus:ring-brand-primary focus:border-brand-primary"/>
-                     <Button type="button" variant="secondary" onClick={handleGenerateImage} isLoading={isGeneratingImg} className="mt-2 w-full">
-                        <ImageIcon className="w-4 h-4 mr-1"/> Gerar Imagem com IA
-                     </Button>
-                     {imgError && <p className="text-red-500 text-sm mt-1">{imgError}</p>}
-                </div>
-                {formData.imageUrl && (
-                  <img 
-                    src={formData.imageUrl} 
-                    alt="pré-visualização" 
-                    className="w-24 h-24 object-cover rounded-md border-2 border-dark-border"
-                    onError={(e) => {
-                        const target = e.target as HTMLImageElement;
-                        target.onerror = null;
-                        target.src = `https://via.placeholder.com/96?text=Sem+Imagem`;
-                    }}
-                  />
-                )}
-            </div>
-        </FormField>
 
-        <div className="flex justify-end space-x-4 pt-4">
+        <div className="flex justify-end space-x-2 pt-4 border-t border-dark-border">
           <Button type="button" variant="secondary" onClick={onClose}>Cancelar</Button>
-          <Button type="submit">{product ? 'Atualizar Produto' : 'Adicionar Produto'}</Button>
+          <Button type="submit">Salvar</Button>
         </div>
       </form>
     </Modal>

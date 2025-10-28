@@ -1,13 +1,18 @@
-
 import React from 'react';
-import { Link, NavLink } from 'react-router-dom';
+import { Link, NavLink, useNavigate } from 'react-router-dom';
 import { useAppContext } from '../context/AppContext';
-import { ShoppingCartIcon, HeartIcon, ShieldCheckIcon } from './icons';
+import { ShoppingCartIcon, HeartIcon, ShieldCheckIcon, LogOutIcon } from './icons';
 
 const Header: React.FC = () => {
-  const { cart, favorites } = useAppContext();
+  const { cart, favorites, isAuthenticated, logout } = useAppContext();
+  const navigate = useNavigate();
   const cartItemCount = cart.reduce((sum, item) => sum + item.quantity, 0);
   const favoritesCount = favorites.length;
+
+  const handleLogout = () => {
+    logout();
+    navigate('/');
+  };
 
   // FIX: Explicitly type NavItem as React.FC to handle children prop correctly.
   const NavItem: React.FC<{ to: string; children: React.ReactNode }> = ({ to, children }) => (
@@ -50,6 +55,11 @@ const Header: React.FC = () => {
               </span>
             )}
           </NavItem>
+          {isAuthenticated && (
+             <button onClick={handleLogout} className="flex items-center p-2 rounded-md transition-colors duration-200 hover:bg-red-600" title="Sair">
+               <LogOutIcon className="w-6 h-6"/>
+             </button>
+          )}
         </div>
       </nav>
     </header>

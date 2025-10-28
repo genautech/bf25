@@ -1,35 +1,45 @@
+import { GoogleGenAI } from "@google/genai";
 
-// This is a mock service to simulate calls to the Gemini API.
-// In a real application, this would use @google/genai.
+// A chave de API é injetada automaticamente pelo ambiente.
+const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
 export const generateDescription = async (productName: string): Promise<string> => {
   console.log(`Generating description for: ${productName}`);
-  return new Promise(resolve => {
-    setTimeout(() => {
-      const descriptions = [
-        `Descubra o revolucionário ${productName}, projetado para elevar sua experiência diária com tecnologia de ponta e design incomparável.`,
-        `O ${productName} é a combinação perfeita de forma e função. Criado com materiais premium, oferece desempenho e durabilidade superiores.`,
-        `Experimente a próxima geração de inovação com o ${productName}. Seus recursos intuitivos e estética elegante o tornam um item indispensável.`,
-        `Liberte seu potencial com o ${productName}. Projetado para a excelência, oferece resultados poderosos e uma experiência de usuário perfeita.`
-      ];
-      const randomDescription = descriptions[Math.floor(Math.random() * descriptions.length)];
-      resolve(randomDescription);
-    }, 1500); // Simulate network delay
-  });
+  try {
+    const response = await ai.models.generateContent({
+        model: 'gemini-2.5-flash',
+        contents: `Gere uma descrição de produto para e-commerce, concisa e informativa, com no máximo 400 caracteres para: "${productName}". Foque em especificações técnicas e características principais de forma objetiva.`,
+    });
+    return response.text;
+  } catch (error) {
+    console.error("Error generating description:", error);
+    return `Explore o ${productName}, um produto de alta qualidade. Ideal para quem busca performance e estilo.`;
+  }
 };
 
 export const generateImage = async (prompt: string): Promise<{ url?: string; error?: string }> => {
   console.log(`Generating image with prompt: ${prompt}`);
-  return new Promise(resolve => {
-    setTimeout(() => {
-      // Simulate a 20% chance of failure
-      if (Math.random() < 0.2) {
-        resolve({ error: 'A geração de imagem falhou devido à política de conteúdo.' });
-      } else {
-        // Generate a random seed for a placeholder image
-        const seed = prompt.replace(/\s+/g, '') + Date.now();
-        resolve({ url: `https://picsum.photos/seed/${seed}/400/300` });
-      }
-    }, 2500); // Simulate longer network delay for image generation
-  });
+  try {
+     const response = await ai.models.generateImages({
+        model: 'imagen-4.0-generate-001',
+        prompt: prompt,
+        config: {
+          numberOfImages: 1,
+          outputMimeType: 'image/jpeg',
+          aspectRatio: '4:3',
+        },
+    });
+
+    if (response.generatedImages && response.generatedImages.length > 0) {
+        const base64ImageBytes: string = response.generatedImages[0].image.imageBytes;
+        const imageUrl = `data:image/jpeg;base64,${base64ImageBytes}`;
+        return { url: imageUrl };
+    }
+    return { error: 'Nenhuma imagem foi gerada.' };
+  } catch (error) {
+    console.error("Error generating image:", error);
+    // Tenta extrair uma mensagem de erro mais específica, se disponível
+    const errorMessage = error.message || 'A geração de imagem falhou. Verifique as políticas de conteúdo e tente novamente.';
+    return { error: errorMessage };
+  }
 };

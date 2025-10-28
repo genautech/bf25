@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useAppContext } from '../context/AppContext';
 import { Product } from '../types';
 import ProductCard from '../components/ProductCard';
@@ -8,7 +8,7 @@ import { useProductFilters } from '../hooks/useProductFilters';
 
 
 const CatalogPage: React.FC = () => {
-  const { products } = useAppContext();
+  const { products, getProductWithDescription } = useAppContext();
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
   
@@ -30,6 +30,17 @@ const CatalogPage: React.FC = () => {
     categories,
     subcategories
   } = useProductFilters(products);
+
+  // Pré-busca as descrições dos produtos visíveis em segundo plano
+  useEffect(() => {
+    paginatedProducts.forEach(product => {
+      if (!product.description) {
+        // Dispara a busca, mas não precisa esperar. 
+        // A função irá atualizar o estado global e o cache.
+        getProductWithDescription(product);
+      }
+    });
+  }, [paginatedProducts, getProductWithDescription]);
 
 
   const handleViewDetails = (product: Product) => {

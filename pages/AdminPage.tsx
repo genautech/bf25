@@ -1,165 +1,149 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { useAppContext } from '../context/AppContext';
 import { Product } from '../types';
 import Button from '../components/ui/Button';
 import ProductFormModal from '../components/ProductFormModal';
+import { TrashIcon, PencilIcon, PlusIcon } from '../components/icons';
 import CsvImporter from '../components/CsvImporter';
-import { EditIcon, TrashIcon } from '../components/icons';
-import Pagination from '../components/Pagination';
-import { useProductFilters } from '../hooks/useProductFilters';
+import { productImageMap } from '../data/image_map';
+import MarginApplicator from '../components/MarginApplicator';
+import MarginDashboard from '../components/MarginDashboard';
+import { calculateFinalPrice, calculateProfit } from '../utils/price';
 
 const AdminPage: React.FC = () => {
-  const { products, deleteProduct } = useAppContext();
-  const [isModalOpen, setIsModalOpen] = useState(false);
-  const [editingProduct, setEditingProduct] = useState<Product | null>(null);
-  
-  const {
-    paginatedProducts,
-    currentPage,
-    totalPages,
-    totalItems,
-    itemsPerPage,
-    handlePageChange,
-    searchTerm,
-    handleSearchChange,
-    selectedCategory,
-    handleCategoryChange,
-    selectedSubcategory,
-    handleSubcategoryChange,
-    sortOrder,
-    handleSortChange,
+  const { 
+    products, 
+    addProduct, 
+    updateProduct, 
+    deleteProduct, 
+    setProducts,
     categories,
-    subcategories
-  } = useProductFilters(products);
+    subcategoryMap
+  } = useAppContext();
 
-  const handleOpenModal = (product: Product | null) => {
-    setEditingProduct(product);
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [productToEdit, setProductToEdit] = useState<Product | null>(null);
+  const [searchTerm, setSearchTerm] = useState('');
+
+  const filteredProducts = useMemo(() => 
+    products.filter(p => p.name.toLowerCase().includes(searchTerm.toLowerCase())),
+    [products, searchTerm]
+  );
+
+  const handleAddNew = () => {
+    setProductToEdit(null);
     setIsModalOpen(true);
   };
 
-  const handleCloseModal = () => {
-    setIsModalOpen(false);
-    setEditingProduct(null);
+  const handleEdit = (product: Product) => {
+    setProductToEdit(product);
+    setIsModalOpen(true);
   };
-
-  const handleDelete = (productId: number) => {
-    if (window.confirm('Você tem certeza que deseja excluir este produto?')) {
+  
+  const handleDelete = (productId: string) => {
+    if (window.confirm('Tem certeza que deseja excluir este produto?')) {
       deleteProduct(productId);
     }
+  };
+
+  const handleSaveProduct = (product: Product) => {
+    if (productToEdit) {
+      updateProduct(product);
+    } else {
+      addProduct({ ...product, id: product.id || `custom-${Date.now()}` });
+    }
+    setIsModalOpen(false);
+  };
+
+  const handleImport = (importedProducts: Product[]) => {
+    // Merge imported products with existing ones based on SKU
+    const productMap = new Map(products.map(p => [p.id, p]));
+    importedProducts.forEach(p => {
+        const existing = productMap.get(p.id);
+        productMap.set(p.id, {
+            ...p,
+            imageUrl: productImageMap.get(p.id) || (existing?.imageUrl || ''),
+            description: existing?.description || '',
+            margin: existing?.margin || 0,
+        });
+    });
+    setProducts(Array.from(productMap.values()));
   };
 
   return (
     <div>
       <div className="flex justify-between items-center mb-6 flex-wrap gap-4">
-        <h1 className="text-3xl font-bold text-brand-primary">Painel do Administrador</h1>
-        <div className="flex gap-4">
-          <CsvImporter />
-          <Button onClick={() => handleOpenModal(null)}>Adicionar Novo Produto</Button>
-        </div>
+        <h1 className="text-3xl font-bold text-brand-primary">Painel de Administração</h1>
+        <Button onClick={handleAddNew}>
+            <PlusIcon className="w-5 h-5 mr-2" />
+            Adicionar Produto
+        </Button>
       </div>
+
+      <MarginDashboard products={products} />
       
-      <div className="mb-8 p-4 bg-dark-card rounded-lg shadow-md">
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 items-end">
-          <div className="lg:col-span-2">
-            <label htmlFor="search-admin" className="block text-sm font-medium text-gray-300 mb-1">Buscar Produtos</label>
+      <div className="bg-dark-card p-4 rounded-lg shadow-md mb-6">
+        <h3 className="font-bold text-lg mb-2 text-gray-200">Gerenciamento em Massa</h3>
+         <MarginApplicator categories={categories} />
+      </div>
+
+      <CsvImporter onImport={handleImport} />
+
+      <div className="bg-dark-card p-4 rounded-lg shadow-md">
+        <div className="mb-4">
             <input
-              id="search-admin"
               type="text"
               placeholder="Buscar por nome..."
               value={searchTerm}
-              onChange={e => handleSearchChange(e.target.value)}
-              className="w-full bg-gray-700 border border-dark-border rounded-md px-3 py-2 text-white focus:ring-brand-primary focus:border-brand-primary"
+              onChange={e => setSearchTerm(e.target.value)}
+              className="w-full max-w-sm bg-gray-700 border border-dark-border rounded-md px-3 py-2 text-white focus:ring-brand-primary focus:border-brand-primary"
             />
-          </div>
-           <div>
-            <label htmlFor="category-admin" className="block text-sm font-medium text-gray-300 mb-1">Categoria</label>
-            <select
-              id="category-admin"
-              value={selectedCategory}
-              onChange={e => handleCategoryChange(e.target.value)}
-              className="w-full bg-gray-700 border border-dark-border rounded-md px-3 py-2 text-white focus:ring-brand-primary focus:border-brand-primary"
-            >
-              {categories.map(category => (
-                <option key={category} value={category}>{category}</option>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm text-left text-gray-300">
+            <thead className="text-xs text-gray-400 uppercase bg-gray-700">
+              <tr>
+                <th scope="col" className="px-6 py-3">Produto</th>
+                <th scope="col" className="px-6 py-3">Custo</th>
+                <th scope="col" className="px-6 py-3">Margem</th>
+                <th scope="col" className="px-6 py-3">Lucro</th>
+                <th scope="col" className="px-6 py-3">Preço Final</th>
+                <th scope="col" className="px-6 py-3 text-right">Ações</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filteredProducts.map(product => (
+                <tr key={product.id} className="bg-dark-card border-b border-dark-border hover:bg-gray-700/50">
+                  <th scope="row" className="px-6 py-4 font-medium text-white flex items-center space-x-3">
+                    <img src={product.imageUrl} alt={product.name} className="w-10 h-10 object-cover rounded-md" />
+                    <span>{product.name}</span>
+                  </th>
+                  <td className="px-6 py-4">{product.price.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</td>
+                  <td className="px-6 py-4">{product.margin || 0}%</td>
+                  <td className="px-6 py-4 text-green-400">{calculateProfit(product).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</td>
+                  <td className="px-6 py-4 font-bold text-brand-primary">{calculateFinalPrice(product).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</td>
+                  <td className="px-6 py-4 text-right">
+                    <Button onClick={() => handleEdit(product)} variant="ghost" size="sm" className="mr-2">
+                        <PencilIcon className="w-4 h-4" />
+                    </Button>
+                    <Button onClick={() => handleDelete(product.id)} variant="ghost" size="sm" className="text-red-500 hover:bg-red-500/10">
+                        <TrashIcon className="w-4 h-4" />
+                    </Button>
+                  </td>
+                </tr>
               ))}
-            </select>
-          </div>
-          <div>
-            <label htmlFor="subcategory-admin" className="block text-sm font-medium text-gray-300 mb-1">Subcategoria</label>
-            <select
-              id="subcategory-admin"
-              value={selectedSubcategory}
-              onChange={e => handleSubcategoryChange(e.target.value)}
-              disabled={selectedCategory === 'Todas'}
-              className="w-full bg-gray-700 border border-dark-border rounded-md px-3 py-2 text-white focus:ring-brand-primary focus:border-brand-primary disabled:opacity-50"
-            >
-              {subcategories.map(subcategory => (
-                <option key={subcategory} value={subcategory}>{subcategory}</option>
-              ))}
-            </select>
-          </div>
+            </tbody>
+          </table>
         </div>
       </div>
 
-      <div className="bg-dark-card rounded-lg shadow-lg overflow-x-auto">
-        <table className="w-full text-left">
-          <thead className="bg-gray-700">
-            <tr>
-              <th className="p-4">SKU</th>
-              <th className="p-4">Nome</th>
-              <th className="p-4">Categoria</th>
-              <th className="p-4">Subcategoria</th>
-              <th className="p-4">Preço</th>
-              <th className="p-4">Link de Compra</th>
-              <th className="p-4">Ações</th>
-            </tr>
-          </thead>
-          <tbody>
-            {paginatedProducts.map(product => (
-              <tr key={product.id} className="border-b border-dark-border last:border-b-0 hover:bg-gray-700/50">
-                <td className="p-4 font-mono text-gray-400">{product.sku}</td>
-                <td className="p-4 font-semibold">{product.name}</td>
-                <td className="p-4">{product.category}</td>
-                <td className="p-4 text-gray-300">{product.subcategory}</td>
-                <td className="p-4">{product.price.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</td>
-                <td className="p-4">
-                  {product.purchaseLink ? (
-                    <a 
-                      href={product.purchaseLink} 
-                      target="_blank" 
-                      rel="noopener noreferrer"
-                      className="text-brand-primary hover:text-brand-secondary underline"
-                    >
-                      Ver
-                    </a>
-                  ) : (
-                    <span className="text-gray-500">N/A</span>
-                  )}
-                </td>
-                <td className="p-4">
-                  <div className="flex space-x-2">
-                    <Button variant="ghost" size="sm" onClick={() => handleOpenModal(product)}><EditIcon className="w-4 h-4" /></Button>
-                    <Button variant="ghost" size="sm" onClick={() => handleDelete(product.id)}><TrashIcon className="w-4 h-4 text-red-500" /></Button>
-                  </div>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-
-      <Pagination 
-        currentPage={currentPage} 
-        totalPages={totalPages} 
-        onPageChange={handlePageChange}
-        totalItems={totalItems}
-        itemsPerPage={itemsPerPage}
-       />
-
-      <ProductFormModal
+      <ProductFormModal 
         isOpen={isModalOpen}
-        onClose={handleCloseModal}
-        product={editingProduct}
+        onClose={() => setIsModalOpen(false)}
+        onSave={handleSaveProduct}
+        productToEdit={productToEdit}
+        categories={categories.filter(c => c !== 'Todas')}
+        subcategoryMap={subcategoryMap}
       />
     </div>
   );
