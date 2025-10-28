@@ -1,0 +1,17 @@
+{
+  "name": "catalogo-black-friday",
+  "version": "1.0.0",
+  "description": "Catálogo Interativo Black Friday",
+  "main": "index.tsx",
+  "scripts": {
+    "start": "serve -s . -l tcp://0.0.0.0:$PORT"
+  },
+  "dependencies": {
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0",
+    "react-router-dom": "^7.9.4",
+    "serve": "^14.2.3"
+  },
+  "author": "",
+  "license": "ISC"
+}

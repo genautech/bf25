@@ -1,0 +1,5 @@
+{
+  "name": "Catálogo Interativo Black Friday",
+  "description": "Um catálogo de produtos interativo para um evento de Black Friday, completo com um painel de administração para gerenciamento. Esta é uma aplicação front-end totalmente funcional usando dados estáticos e persistência local, sem um backend ou banco de dados.",
+  "requestFramePermissions": []
+}
