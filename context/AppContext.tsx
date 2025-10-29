@@ -1,8 +1,10 @@
-import React, { createContext, useContext, useState, ReactNode, useCallback, useMemo } from 'react';
+import React, { createContext, useContext, useState, ReactNode, useCallback, useMemo, useEffect } from 'react';
 import { Product, CartItem } from '../types';
 import useLocalStorage from '../hooks/useLocalStorage';
 import { initialProducts } from '../data/products';
 import { generateDescription } from '../services/geminiService';
+import { db } from '../firebaseConfig';
+import { collection, getDocs, doc, setDoc, deleteDoc, writeBatch } from "firebase/firestore";
 
 
 interface AppContextType {
@@ -19,24 +21,60 @@ interface AppContextType {
   isAuthenticated: boolean;
   login: (user: string, pass: string) => boolean;
   logout: () => void;
-  addProduct: (product: Product) => void;
-  updateProduct: (updatedProduct: Product) => void;
-  deleteProduct: (productId: string) => void;
+  addProduct: (product: Product) => Promise<void>;
+  updateProduct: (updatedProduct: Product) => Promise<void>;
+  deleteProduct: (productId: string) => Promise<void>;
   applyBulkMargin: (category: string, margin: number) => Promise<void>;
   getProductWithDescription: (product: Product) => Promise<Product>;
   categories: string[];
   subcategoryMap: Map<string, string[]>;
+  isLoading: boolean;
 }
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
 
 export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
-  const [products, setProducts] = useLocalStorage<Product[]>('products', initialProducts);
+  const [products, setProducts] = useState<Product[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
   const [cart, setCart] = useLocalStorage<CartItem[]>('cart', []);
   const [favorites, setFavorites] = useLocalStorage<Product[]>('favorites', []);
   const [isAuthenticated, setIsAuthenticated] = useLocalStorage<boolean>('isAuthenticated', false);
   const [descriptionCache, setDescriptionCache] = useState<Record<string, string>>({});
   const [fetchingDescriptions, setFetchingDescriptions] = useState<Record<string, boolean>>({});
+
+  // Fetch products from Firestore on mount
+  useEffect(() => {
+    const fetchProducts = async () => {
+      setIsLoading(true);
+      try {
+        const productsCollection = collection(db, "products");
+        const productSnapshot = await getDocs(productsCollection);
+        
+        if (productSnapshot.empty) {
+          console.log("No products found in Firestore, seeding database...");
+          const batch = writeBatch(db);
+          initialProducts.forEach((product) => {
+            const docRef = doc(db, "products", product.id);
+            batch.set(docRef, product);
+          });
+          await batch.commit();
+          setProducts(initialProducts);
+          console.log("Database seeded successfully.");
+        } else {
+          const productList = productSnapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as Product));
+          setProducts(productList);
+        }
+      } catch (error) {
+        console.error("Error fetching products from Firestore: ", error);
+        // Fallback to initialProducts if Firestore fails
+        setProducts(initialProducts);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    fetchProducts();
+  }, []);
 
 
   const categories = useMemo(() => ['Todas', ...Array.from(new Set(products.map(p => p.category))).sort()], [products]);
@@ -122,27 +160,55 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     setIsAuthenticated(false);
   };
   
-  const addProduct = (product: Product) => {
-    setProducts(prev => [product, ...prev]);
+  const addProduct = async (product: Product) => {
+    try {
+        await setDoc(doc(db, "products", product.id), product);
+        setProducts(prev => [product, ...prev]);
+    } catch(e) {
+        console.error("Error adding document: ", e);
+    }
   };
 
-  const updateProduct = (updatedProduct: Product) => {
-    setProducts(prev => prev.map(p => (p.id === updatedProduct.id ? updatedProduct : p)));
+  const updateProduct = async (updatedProduct: Product) => {
+    try {
+        await setDoc(doc(db, "products", updatedProduct.id), updatedProduct, { merge: true });
+        setProducts(prev => prev.map(p => (p.id === updatedProduct.id ? updatedProduct : p)));
+    } catch (e) {
+        console.error("Error updating document: ", e);
+    }
   };
   
-  const deleteProduct = (productId: string) => {
-    setProducts(prev => prev.filter(p => p.id !== productId));
+  const deleteProduct = async (productId: string) => {
+    try {
+        await deleteDoc(doc(db, "products", productId));
+        setProducts(prev => prev.filter(p => p.id !== productId));
+    } catch (e) {
+        console.error("Error deleting document: ", e);
+    }
   };
   
   const applyBulkMargin = async (category: string, margin: number) => {
-      setProducts(prev => 
-          prev.map(p => {
-              if(category === 'Todas' || p.category === category) {
-                  return { ...p, margin };
-              }
-              return p;
-          })
-      );
+      const productsToUpdate = products.filter(p => category === 'Todas' || p.category === category);
+      
+      try {
+        const batch = writeBatch(db);
+        productsToUpdate.forEach(p => {
+            const productRef = doc(db, "products", p.id);
+            batch.update(productRef, { margin });
+        });
+        await batch.commit();
+
+        setProducts(prev => 
+            prev.map(p => {
+                if(category === 'Todas' || p.category === category) {
+                    return { ...p, margin };
+                }
+                return p;
+            })
+        );
+      } catch (e) {
+          console.error("Error applying bulk margin: ", e);
+      }
   };
 
   const getProductWithDescription = useCallback(async (product: Product): Promise<Product> => {
@@ -153,25 +219,27 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       return { ...product, description: descriptionCache[product.id] };
     }
     
-    // Prevent concurrent fetches for the same product ID
     if (fetchingDescriptions[product.id]) {
-        return product; // Another request is already in flight
+        return product; 
     }
 
     try {
       setFetchingDescriptions(prev => ({ ...prev, [product.id]: true }));
-
       const desc = await generateDescription(product.name);
       const updatedProduct = { ...product, description: desc };
       
       setDescriptionCache(prev => ({ ...prev, [product.id]: desc }));
       
+      // Also update in Firestore without blocking
+      const productRef = doc(db, "products", product.id);
+      setDoc(productRef, { description: desc }, { merge: true });
+
       setProducts(prevProds => prevProds.map(p => p.id === product.id ? updatedProduct : p));
       
       return updatedProduct;
     } catch (error) {
       console.error("Failed to fetch description", error);
-      return product; // Return original product on error
+      return product;
     } finally {
         setFetchingDescriptions(prev => {
             const newFetching = { ...prev };
@@ -179,7 +247,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
             return newFetching;
         });
     }
-  }, [descriptionCache, setProducts, fetchingDescriptions]);
+  }, [descriptionCache, fetchingDescriptions]);
 
 
   const value = {
@@ -203,6 +271,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     getProductWithDescription,
     categories,
     subcategoryMap,
+    isLoading,
   };
 
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>;

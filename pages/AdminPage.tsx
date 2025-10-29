@@ -18,7 +18,8 @@ const AdminPage: React.FC = () => {
     deleteProduct, 
     setProducts,
     categories,
-    subcategoryMap
+    subcategoryMap,
+    isLoading
   } = useAppContext();
 
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -69,6 +70,15 @@ const AdminPage: React.FC = () => {
     });
     setProducts(Array.from(productMap.values()));
   };
+  
+  if (isLoading) {
+    return (
+        <div className="text-center py-20">
+            <h2 className="text-2xl font-bold text-gray-400">Carregando painel...</h2>
+            <p className="text-gray-500 mt-2">Sincronizando dados com a nuvem.</p>
+        </div>
+    );
+  }
 
   return (
     <div>

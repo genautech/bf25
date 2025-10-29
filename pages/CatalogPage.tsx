@@ -8,7 +8,7 @@ import { useProductFilters } from '../hooks/useProductFilters';
 
 
 const CatalogPage: React.FC = () => {
-  const { products, getProductWithDescription } = useAppContext();
+  const { products, getProductWithDescription, isLoading } = useAppContext();
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
   
@@ -47,6 +47,15 @@ const CatalogPage: React.FC = () => {
     setSelectedProduct(product);
     setIsModalOpen(true);
   };
+
+  if (isLoading) {
+    return (
+        <div className="text-center py-20">
+            <h2 className="text-2xl font-bold text-gray-400">Carregando produtos...</h2>
+            <p className="text-gray-500 mt-2">Buscando as melhores ofertas na nuvem!</p>
+        </div>
+    );
+  }
 
   return (
     <div>
